@@ -177,16 +177,16 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'github-pat-read-org', variable: 'GH_TOKEN')]) {
                     sh '''
-                        STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
-                            -H "Authorization: token $GH_TOKEN" \
-                            "https://api.github.com/orgs/aws/members/${CHANGE_AUTHOR}")
-                        if [ "$STATUS" = "204" ]; then
-                            echo "✅ ${CHANGE_AUTHOR} is an AWS org member"
+                        PERM_JSON=$(curl -s -H "Authorization: token $GH_TOKEN" \
+                            "https://api.github.com/repos/aws/aws-ofi-nccl/collaborators/${CHANGE_AUTHOR}/permission")
+                        PERM=$(echo "$PERM_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('permission','none'))" 2>/dev/null || echo "none")
+                        if [ "$PERM" = "admin" ] || [ "$PERM" = "write" ]; then
+                            echo "✅ ${CHANGE_AUTHOR} has ${PERM} access — authorized"
                             exit 0
                         fi
-                        echo "${CHANGE_AUTHOR} is not an AWS org member (HTTP $STATUS), checking approved authors list..."
+                        echo "${CHANGE_AUTHOR} has ${PERM} repo access, checking approved authors list..."
                         ALLOWLIST_URL="https://raw.githubusercontent.com/aws/aws-ofi-nccl/master/.ci/aws/approved_authors.txt"
-                        if curl -sf "$ALLOWLIST_URL" | grep -qx "${CHANGE_AUTHOR}"; then
+                        if curl -sf -H "Authorization: token $GH_TOKEN" "$ALLOWLIST_URL" | grep -qx "${CHANGE_AUTHOR}"; then
                             echo "✅ ${CHANGE_AUTHOR} is on the approved authors list"
                             exit 0
                         fi
