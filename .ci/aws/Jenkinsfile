@@ -176,24 +176,23 @@ pipeline {
             when { changeRequest() }
             steps {
                 withCredentials([string(credentialsId: 'github-pat-read-org', variable: 'GH_TOKEN')]) {
-                    script {
-                        def httpCode = sh(script: """
-                            curl -s -o /dev/null -w '%{http_code}' \
-                                -H 'Authorization: token $GH_TOKEN' \
-                                'https://api.github.com/orgs/aws/members/${env.CHANGE_AUTHOR}'
-                        """, returnStdout: true).trim()
-
-                        if (httpCode == '204') {
-                            echo "✅ ${env.CHANGE_AUTHOR} is an aws org member"
-                        } else {
-                            def allowed = sh(script: "curl -sf https://raw.githubusercontent.com/aws/aws-ofi-nccl/master/.ci/aws/approved_authors.txt",
-                                            returnStdout: true).trim()
-                            if (!allowed.split('\n').collect { it.trim() }.findAll { it && !it.startsWith('#') }.contains(env.CHANGE_AUTHOR)) {
-                                error("CI blocked: '${env.CHANGE_AUTHOR}' is not an aws org member or in approved_authors.txt")
-                            }
-                            echo "✅ ${env.CHANGE_AUTHOR} found in approved_authors.txt"
-                        }
-                    }
+                    sh '''
+                        STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+                            -H "Authorization: token $GH_TOKEN" \
+                            "https://api.github.com/orgs/aws/members/${CHANGE_AUTHOR}")
+                        if [ "$STATUS" = "204" ]; then
+                            echo "✅ ${CHANGE_AUTHOR} is an AWS org member"
+                            exit 0
+                        fi
+                        echo "${CHANGE_AUTHOR} is not an AWS org member (HTTP $STATUS), checking approved authors list..."
+                        ALLOWLIST_URL="https://raw.githubusercontent.com/aws/aws-ofi-nccl/master/.ci/aws/approved_authors.txt"
+                        if curl -sf "$ALLOWLIST_URL" | grep -qx "${CHANGE_AUTHOR}"; then
+                            echo "✅ ${CHANGE_AUTHOR} is on the approved authors list"
+                            exit 0
+                        fi
+                        echo "❌ ${CHANGE_AUTHOR} is not authorized to run CI"
+                        exit 1
+                    '''
                 }
             }
         }
